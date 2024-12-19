@@ -1,0 +1,984 @@
+---
+title: "Illustrative Examples"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document: 
+    toc: true
+    theme: simple
+---
+
+```{r setup, message = FALSE, warning = FALSE, comment = NA}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, comment = NA,
+                      fig.width = 6.25, fig.height = 5)
+
+library(tidyverse)
+library(Hmisc)
+library(ggsci)
+library(SpiecEasi)
+library(ANCOMBC)
+library(mia)
+library(ggpubr)
+
+folder_path = "custom_functions"
+r_files = list.files(path = folder_path, pattern = "\\.R$", full.names = TRUE)
+for (file in r_files) {
+  source(file)
+}
+```
+
+# Motivation: The effects of compositionality {.tabset}
+
+## Data
+
+n = 100 and d = 20. 4 pairs of features are correlated.
+
+```{r}
+set.seed(123)
+n = 100
+d = 20
+cor_pairs = 4
+mu = 10:14
+da_prop = 0.1
+sample_name = paste0("s", seq_len(n))
+feature_name = paste0("f", seq_len(d))
+
+# Simulate the true metabolite data
+sim  =  sim_data(n = n, d = d, cor_pairs = cor_pairs, mu = mu, da_prop = da_prop)
+y = sim$y
+x = sim$x
+
+# The log data
+log_y = log(as.matrix(y))
+
+# Add sources of biases
+log_sample_bias = log(runif(n, 1e-3, 1e-1))
+log_feature_bias = log(runif(d, 1e-1, 1))
+log_data = sweep(log_y, 1, log_sample_bias, `+`)
+log_data = sweep(log_data, 2, log_feature_bias, `+`)
+data = exp(log_data)
+```
+
+## True Pearson correlation coefficients
+
+```{r}
+res_pearson = rcorr(log_y, type = "pearson")
+pearson_values = res_pearson$r
+pearson_p = res_pearson$P
+pearson_q = matrix_p_adjust(pearson_p)
+
+mat_values = p_filter(pearson_values, pearson_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate1_true = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## Pearson correlation coefficients on the observed data
+
+The standard Pearson correlation coefficients do not account for compositionality, which leads to inflated false positives.
+
+```{r}
+res_pearson = rcorr(log(data), type = "pearson")
+pearson_values = res_pearson$r
+pearson_p = res_pearson$P
+pearson_q = matrix_p_adjust(pearson_p)
+
+mat_values = p_filter(pearson_values, pearson_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate1_pearson = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## Variance of log-ratio (VLR)
+
+However, the VLR demonstrates robustness in the presence of compositional effects, allowing for the direct computation of VLRs.
+
+The permutation test for deriving p-values has been modified to utilize normalized VLRs.
+
+```{r}
+outputs = vlr_test(data = data, meta = x, num_perm = 1000, p_adj_method = "BH")
+estimate = outputs$estimate
+p_value = outputs$p_value
+q_value = outputs$q_value
+mat_values = p_filter(estimate, q_value, max_p = 0.05, impute_value = 0)
+
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate1_vlr = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       na.value = "grey80", space = "Lab", name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## SECOM
+
+```{r}
+feature_table = t(data)
+assays = SimpleList(counts = feature_table)
+smd = DataFrame(data.frame(sampleid = rownames(data)))
+
+tse = TreeSummarizedExperiment(assays = assays, colData = smd)
+res_linear = secom_linear(data = list(tse), assay_name = "counts",
+                          pseudo = 0, prv_cut = 0.1, lib_cut = 0, corr_cut = 0.5, 
+                          wins_quant = c(0.05, 0.95), method = "pearson", 
+                          soft = FALSE, thresh_len = 20, n_cv = 10, 
+                          thresh_hard = 0.3, n_cl = 2)
+
+secom_values = res_linear$corr_th
+secom_cooccur = res_linear$mat_cooccur
+feature_names = paste0("f", seq_len(d))
+secom_values = secom_values[feature_names, feature_names]
+secom_cooccur = secom_cooccur[feature_names, feature_names]
+overlap = 10
+secom_values[secom_cooccur < overlap] = 0
+
+df_fig = data.frame(secom_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate1_secom = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## SparCC
+
+Compositionality-aware methods, such as SparCC and SECOM, mitigate the influence of compositional effects, consequently diminishing the occurrence of false positives.
+
+```{r}
+set.seed(123)
+sparcc_values = sparcc(data)$Cor
+colnames(sparcc_values) = colnames(data)
+rownames(sparcc_values) = colnames(data)
+
+# boot_res = sparccboot(data, R = 1000)
+# saveRDS(boot_res, "../results/intermediate_results/illustration/boot_sparcc_composit.rds")
+boot_res = read_rds("../results/intermediate_results/illustration/boot_sparcc_composit.rds")
+p_res = pval.sparccboot(boot_res)
+sparcc_p = diag(0, nrow = d, ncol = d)
+sparcc_p[upper.tri(sparcc_p, diag = FALSE)] = p_res$pvals
+sparcc_p = sparcc_p + t(sparcc_p)
+colnames(sparcc_p) = colnames(data)
+rownames(sparcc_p) = colnames(data)
+sparcc_q = matrix_p_adjust(sparcc_p)
+
+mat_values = p_filter(sparcc_values, sparcc_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate1_sparcc = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## SPIEC-EASI
+
+Other methods, such as SPIEC-EASI and mmvec, were proposed to measure the conditional probability between features.
+
+Unlike the methods mentioned above, these approaches do not generate p-values.
+
+```{r}
+set.seed(123)
+# se_mb = spiec.easi(data, method = "mb", lambda.min.ratio = 1e-2,
+#                    nlambda = 20, pulsar.params = list(rep.num = 50, ncores = 4))
+# saveRDS(se_mb, "../results/intermediate_results/illustration/se_composit.rds")
+se_mb = read_rds("../results/intermediate_results/illustration/se_composit.rds")
+se_beta = as.matrix(symBeta(getOptBeta(se_mb), mode = "maxabs"))
+rownames(se_beta) = colnames(data)
+colnames(se_beta) = colnames(data)
+
+df_fig = data.frame(se_beta) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+df_fig$value[is.na(df_fig$value)] = 1
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate1_se = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+# Motivation: The effects of missing not at random (MNAR) {.tabset}
+
+## Data
+
+n = 100 and d = 20. 4 pairs of features are correlated.
+
+```{r}
+set.seed(123)
+n = 100
+d = 20
+cor_pairs = 4
+mu = 10:14
+da_prop = 0.1
+sample_name = paste0("s", seq_len(n))
+feature_name = paste0("f", seq_len(d))
+
+# Simulate the true metabolite data
+sim  =  sim_data(n = n, d = d, cor_pairs = cor_pairs, mu = mu, da_prop = da_prop)
+y = sim$y
+x = sim$x
+
+# The log data
+log_y = log(as.matrix(y))
+
+# Add sources of biases
+log_sample_bias = log(runif(n, 1e-3, 1e-1))
+log_feature_bias = log(runif(d, 1e-1, 1))
+log_data = sweep(log_y, 1, log_sample_bias, `+`)
+log_data = sweep(log_data, 2, log_feature_bias, `+`)
+data = exp(log_data)
+
+# Add zeros
+zero_prop = 0.3
+threshold = quantile(data, zero_prop, na.rm = TRUE)
+data_miss = data
+data_miss[data_miss < threshold] = 0
+```
+
+## Variance of log-ratios (VLR)
+
+VLRs cannot be directly computed when 0s are present.
+
+The most common approach to handle 0s is to add a pseudocount (e.g., 1) to all values. However, adding a pseudocount inflates the values of VLRs.
+
+```{r}
+data_pseudo = data_miss + 1
+vlr_values = compute_vlr(data = data_pseudo)
+norm_vlr_values = norm_vlr(vlr_values)
+
+outputs = vlr_test(data = data_pseudo, meta = x, num_perm = 1000, p_adj_method = "BH")
+estimate = outputs$estimate
+p_value = outputs$p_value
+q_value = outputs$q_value
+
+mat_values = p_filter(estimate, q_value, max_p = 0.05, impute_value = 0)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate2_vlr = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       na.value = "grey80", space = "Lab", name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## SECOM
+
+SECOM utilized complete data to deal with zeros, thus, with the presence of a large proportion of zeros, SECOM could suffer from loss of power.
+
+```{r}
+feature_table = t(data_miss)
+assays = SimpleList(counts = feature_table)
+smd = DataFrame(data.frame(sampleid = rownames(data)))
+
+tse = TreeSummarizedExperiment(assays = assays, colData = smd)
+res_linear = secom_linear(data = list(tse), assay_name = "counts",
+                          pseudo = 0, prv_cut = 0.1, lib_cut = 0, corr_cut = 0.5, 
+                          wins_quant = c(0.05, 0.95), method = "pearson", 
+                          soft = FALSE, thresh_len = 20, n_cv = 10, 
+                          thresh_hard = 0.3, n_cl = 2)
+
+secom_values = res_linear$corr_th
+secom_cooccur = res_linear$mat_cooccur
+feature_names = paste0("f", seq_len(d))
+secom_values = secom_values[feature_names, feature_names]
+secom_cooccur = secom_cooccur[feature_names, feature_names]
+overlap = 10
+secom_values[secom_cooccur < overlap] = 0
+
+df_fig = data.frame(secom_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate2_secom = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## SparCC
+
+For methods such as SparCC, which rely on computing VLRs, the presence of 0s will lead to loss of power.
+
+```{r}
+set.seed(123)
+sparcc_values = sparcc(data_miss)$Cor
+colnames(sparcc_values) = colnames(data_miss)
+rownames(sparcc_values) = colnames(data_miss)
+
+# boot_res = sparccboot(data_miss, R = 1000)
+# saveRDS(boot_res, "../results/intermediate_results/illustration/boot_sparcc_zero.rds")
+boot_res = read_rds("../results/intermediate_results/illustration/boot_sparcc_zero.rds")
+p_res = pval.sparccboot(boot_res)
+sparcc_p = diag(0, nrow = d, ncol = d)
+sparcc_p[upper.tri(sparcc_p, diag = FALSE)] = p_res$pvals
+sparcc_p = sparcc_p + t(sparcc_p)
+colnames(sparcc_p) = colnames(data_miss)
+rownames(sparcc_p) = colnames(data_miss)
+sparcc_q = matrix_p_adjust(sparcc_p)
+
+mat_values = p_filter(sparcc_values, sparcc_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate2_sparcc = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## SPIEC-EASI
+
+Methods leveraging conditional probability are generally more robust against false positives, yet they may experience a reduction in statistical power as well.
+
+```{r}
+zero_prop = 0.3
+threshold = quantile(data, zero_prop, na.rm = TRUE)
+data_miss = data
+data_miss[data_miss < threshold] = 0
+
+set.seed(123)
+# se_mb = spiec.easi(data_miss, method = "mb", lambda.min.ratio = 1e-2,
+#                    nlambda = 20, pulsar.params = list(rep.num = 50, ncores = 4))
+# saveRDS(se_mb, "../results/intermediate_results/illustration/se_zero.rds")
+se_mb = read_rds("../results/intermediate_results/illustration/se_zero.rds")
+se_beta = as.matrix(symBeta(getOptBeta(se_mb), mode = "maxabs"))
+rownames(se_beta) = colnames(data_miss)
+colnames(se_beta) = colnames(data_miss)
+
+df_fig = data.frame(se_beta) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate2_se = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+# Motivation: The effects of confounders {.tabset}
+
+## The confounded data
+
+n = 100 and d = 20. With no confounders, 4 pairs of features are correlated.
+
+```{r}
+set.seed(123)
+n = 100
+d = 20
+cor_pairs = 4
+mu = 10:14
+da_prop = 0.1
+
+smd = data.frame(x1 = rnorm(n = n),
+                 x2 = sample(c("a", "b"), size = n, replace = TRUE))
+
+sample_name = paste0("s", seq_len(n))
+feature_name = paste0("f", seq_len(d))
+
+# Simulate the true metabolite data
+sim  =  sim_data(n = n, d = d, cor_pairs = cor_pairs, mu = mu, 
+                 x = smd, cont_list = c("x1"), cat_list = c("x2"), da_prop = da_prop)
+y = sim$y
+x = sim$x
+beta = sim$beta
+
+# The log data
+log_y = log(as.matrix(y))
+
+# Add sources of biases
+log_sample_bias = log(runif(n, 1e-3, 1e-1))
+log_feature_bias = log(runif(d, 1e-1, 1))
+log_data = sweep(log_y, 1, log_sample_bias, `+`)
+log_data = sweep(log_data, 2, log_feature_bias, `+`)
+data = exp(log_data)
+
+# Recover the unconfounded data
+log_y_unconfound = log_y - as.matrix(x) %*% t(beta)
+data_unconfound = exp(log_y_unconfound)
+```
+
+## True Pearson correlation coefficients
+
+```{r}
+res_pearson = rcorr(log_y_unconfound, type = "pearson")
+pearson_values = res_pearson$r
+pearson_p = res_pearson$P
+pearson_q = matrix_p_adjust(pearson_p)
+
+mat_values = p_filter(pearson_values, pearson_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate3_true = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## True VLRs
+
+However, the VLR demonstrates robustness in the presence of compositional effects, allowing for the direct computation of VLRs.
+
+The permutation test for deriving p-values has been modified to utilize normalized VLRs.
+
+```{r}
+outputs = vlr_test(data = data_unconfound, meta = NULL, num_perm = 1000, p_adj_method = "BH")
+estimate = outputs$estimate
+p_value = outputs$p_value
+q_value = outputs$q_value
+mat_values = p_filter(estimate, q_value, max_p = 0.05, impute_value = 0)
+
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate3_vlr = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       na.value = "grey80", space = "Lab", name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## Confounded Pearson correlation coefficients
+
+Regardless of the presence of confounders, Pearson correlation coefficients calculated using raw data suffer from inflated false positives due to compositionality.
+
+```{r}
+res_pearson = rcorr(log_data, type = "pearson")
+pearson_values = res_pearson$r
+pearson_p = res_pearson$P
+pearson_q = matrix_p_adjust(pearson_p)
+
+mat_values = p_filter(pearson_values, pearson_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate3_pearson = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## Confounded SECOM
+
+```{r}
+feature_table = t(data)
+assays = SimpleList(counts = feature_table)
+smd = DataFrame(data.frame(sampleid = rownames(data)))
+
+tse = TreeSummarizedExperiment(assays = assays, colData = smd)
+res_linear = secom_linear(data = list(tse), assay_name = "counts",
+                          pseudo = 0, prv_cut = 0.1, lib_cut = 0, corr_cut = 0.5, 
+                          wins_quant = c(0.05, 0.95), method = "pearson", 
+                          soft = FALSE, thresh_len = 20, n_cv = 10, 
+                          thresh_hard = 0.3, n_cl = 2)
+
+secom_values = res_linear$corr_th
+secom_cooccur = res_linear$mat_cooccur
+feature_names = paste0("f", seq_len(d))
+secom_values = secom_values[feature_names, feature_names]
+secom_cooccur = secom_cooccur[feature_names, feature_names]
+overlap = 10
+secom_values[secom_cooccur < overlap] = 0
+
+df_fig = data.frame(secom_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate3_secom = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## Confounded SparCC
+
+In the presence of confounders, compositionality-aware methods like SparCC suffer from inflated false positives and loss of power.
+
+It should be noted that some entries exhibit a reversal in their sign.
+
+```{r}
+set.seed(123)
+sparcc_values = sparcc(data)$Cor
+colnames(sparcc_values) = colnames(data)
+rownames(sparcc_values) = colnames(data)
+
+# boot_res = sparccboot(data, R = 1000)
+# saveRDS(boot_res, "../results/intermediate_results/illustration/boot_sparcc_confound.rds")
+boot_res = read_rds("../results/intermediate_results/illustration/boot_sparcc_confound.rds")
+p_res = pval.sparccboot(boot_res)
+sparcc_p = diag(0, nrow = d, ncol = d)
+sparcc_p[upper.tri(sparcc_p, diag = FALSE)] = p_res$pvals
+sparcc_p = sparcc_p + t(sparcc_p)
+colnames(sparcc_p) = colnames(data)
+rownames(sparcc_p) = colnames(data)
+sparcc_q = matrix_p_adjust(sparcc_p)
+
+mat_values = p_filter(sparcc_values, sparcc_q, max_p = 0.05)
+df_fig = data.frame(mat_values) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate3_sparcc = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+## Confounded SPIEC-EASI
+
+Conditional probability-based methods like SPIEC-EASI also experience inflated false positives and a loss of power in the presence of confounders.
+
+```{r}
+set.seed(123)
+# se_mb = spiec.easi(data, method = "mb", lambda.min.ratio = 1e-2,
+#                    nlambda = 20, pulsar.params = list(rep.num = 50, ncores = 4))
+# saveRDS(se_mb, "../results/intermediate_results/illustration/se_confound.rds")
+se_mb = read_rds("../results/intermediate_results/illustration/se_confound.rds")
+se_beta = as.matrix(symBeta(getOptBeta(se_mb), mode = "maxabs"))
+rownames(se_beta) = colnames(data)
+colnames(se_beta) = colnames(data)
+
+df_fig = data.frame(se_beta) %>%
+  rownames_to_column("var1") %>%
+  pivot_longer(cols = f1:f20, names_to = "var2", values_to = "value") %>%
+  rowwise() %>%
+  mutate(pair = sort(c(var1, var2)) %>% 
+           paste(collapse = ",")) %>%
+  group_by(pair) %>%
+  distinct(pair, .keep_all = TRUE)
+df_fig$var1 = factor(df_fig$var1, levels = paste0("f", seq_len(d)))
+df_fig$var2 = factor(df_fig$var2, levels = paste0("f", seq_len(d)))
+breaks = levels(df_fig$var1)[rep(c(TRUE, FALSE), d/2)]
+
+fig_motivate3_se = df_fig %>%
+  ggplot(aes(var1, var2, fill = value)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", na.value = "grey80",
+                       midpoint = 0, limit = c(-1.1, 1.1), space = "Lab", 
+                       name = NULL) +
+  scale_x_discrete(drop = FALSE, position = "bottom", breaks = breaks) +
+  scale_y_discrete(drop = FALSE, position = "left", breaks = breaks) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        plot.title = element_text(hjust = 0.5),
+        panel.grid.major = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = c(0.7, 0.2),
+        legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                               title.position = "top", title.hjust = 0.5)) +
+  coord_fixed()
+```
+
+# Outputs
+
+```{r}
+fig_motivate1 = ggarrange(fig_motivate1_true, fig_motivate1_pearson, 
+                          fig_motivate1_vlr, fig_motivate1_sparcc, 
+                          fig_motivate1_secom, fig_motivate1_se, 
+                          nrow = 2, ncol = 3, labels = c("a", "b", "c", "d", "e", "f"))
+
+fig_motivate2 = ggarrange(fig_motivate2_vlr, fig_motivate2_sparcc, 
+                          fig_motivate2_secom, fig_motivate2_se, 
+                          nrow = 2, ncol = 2, labels = c("a", "b", "c", "d"))
+
+fig_motivate3 = ggarrange(fig_motivate3_pearson, fig_motivate3_sparcc, 
+                          fig_motivate3_secom, fig_motivate3_se, 
+                          nrow = 2, ncol = 2, labels = c("a", "b", "c", "d"))
+
+ggsave(filename = "../results/figures/ext_motivate1.pdf", 
+       plot = fig_motivate1, width = 12, height = 8)
+ggsave(filename = "../results/figures/ext_motivate2.pdf", 
+       plot = fig_motivate2, width = 9, height = 8)
+ggsave(filename = "../results/figures/ext_motivate3.pdf", 
+       plot = fig_motivate3, width = 9, height = 8)
+```
+
+# Session information
+
+```{r, message = FALSE, warning = FALSE, comment = NA}
+sessionInfo()
+```
+
+
+
+
+

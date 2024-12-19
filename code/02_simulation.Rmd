@@ -1,0 +1,327 @@
+---
+title: "Simulation Studies"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document: 
+    toc: true
+    theme: simple
+---
+
+```{r setup, message = FALSE, warning = FALSE, comment = NA}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, comment = NA)
+
+library(openxlsx)
+library(tidyverse)
+library(magrittr)
+library(qwraps2)
+library(ggsci)
+library(ggpubr)
+```
+
+```{r}
+options(qwraps2_markup = "markdown")
+summary_template =
+  list("TPR" =
+         list("tpr_mean" = ~ round(mean(tpr, na.rm = TRUE), 5),
+              "tpr_sd" = ~ round(sd(tpr, na.rm = TRUE), 5)),
+       "FDR" = 
+         list("fdr_mean" = ~ round(mean(fdr, na.rm = TRUE), 5),
+              "fdr_sd" = ~ round(sd(fdr, na.rm = TRUE), 5))
+  )
+
+wb = createWorkbook()
+```
+
+# Simulation parameters
+
+```{r}
+n = 100
+d = c(50, 200, 500)
+zero_prop = seq(0, 0.3, 0.1)
+iter_num = 100
+seed = seq_len(iter_num)
+
+simparams = data.frame(expand.grid(n, d, zero_prop, seed))
+colnames(simparams) = c("n", "d", "zero_prop", "seed")
+simparams = simparams %>%
+  arrange(n, d, zero_prop, seed)
+simparams_list = apply(simparams, 1, paste0, collapse = "_")
+```
+
+# Wihout confounders
+
+Code for executing each method is available in a separate "simulation code" folder.
+
+```{r, fig.height=10, fig.width=12}
+df_metvae = read_csv("../results/intermediate_results/simulations/sim_metvae_unconfound.csv")
+df_pearson = read_csv("../results/intermediate_results/simulations/sim_pearson_unconfound.csv")
+df_secom = read_csv("../results/intermediate_results/simulations/sim_secom_unconfound.csv")
+df_secom1 = df_secom[, 1:3]
+df_secom2 = df_secom[, 4:6]
+df_sparcc = read_csv("../results/intermediate_results/simulations/sim_sparcc_unconfound.csv")
+# Add 800 rows filled with NA values to `df_sparcc`
+df_na = as.data.frame(matrix(NA, nrow = 800, ncol = ncol(df_sparcc)))
+colnames(df_na) = colnames(df_sparcc)
+df_sparcc = rbind(df_sparcc, df_na)
+df_se = read_csv("../results/intermediate_results/simulations/sim_spiec_easi_unconfound.csv")
+df_spring = read_csv("../results/intermediate_results/simulations/sim_spring_unconfound.csv")
+
+col_lab = c("tpr", "fpr", "fdr")
+colnames(df_metvae) = col_lab
+colnames(df_pearson) = col_lab
+colnames(df_secom1) = col_lab
+colnames(df_secom2) = col_lab
+colnames(df_sparcc) = col_lab
+colnames(df_se) = col_lab
+colnames(df_spring) = col_lab
+
+simpattern = distinct(simparams, n, d, zero_prop) %>%
+  unite("setting", n:zero_prop, sep = ", ")
+
+df_metvae = df_metvae %>%
+  mutate(method = "MetVAE", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_pearson = df_pearson %>%
+  mutate(method = "Pearson", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_secom1 = df_secom1 %>%
+  mutate(method = "SECOM (Filtering)", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_secom2 = df_secom2 %>%
+  mutate(method = "SECOM (Thresholding)", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_sparcc = df_sparcc %>%
+  mutate(method = "SparCC", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_se = df_se %>%
+  mutate(method = "SPIEC-EASI", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_spring = df_spring %>%
+  mutate(method = "SPRING", 
+         setting = rep(simpattern$setting, each = iter_num))
+
+df_all = df_metvae %>%
+  bind_rows(df_pearson) %>%
+  bind_rows(df_secom1) %>%
+  bind_rows(df_secom2) %>%
+  bind_rows(df_sparcc) %>%
+  bind_rows(df_se) %>%
+  bind_rows(df_spring)
+df_all$setting = factor(df_all$setting, 
+                        levels = simpattern$setting)
+df_all = df_all %>%
+  dplyr::select(-fpr)
+
+# Simulation summary
+tab = df_all %>% 
+  group_by(method, setting) %>% 
+  summary_table(summary_template)
+
+addWorksheet(wb, "unconfound")
+writeData(wb, "unconfound", tab)
+
+# Visualizations
+# Including Pearson and SECOM (Thresholding)
+df_fig1 = df_all %>%
+  pivot_longer(cols = tpr:fdr, names_to = "measure", values_to = "value") %>%
+  separate(col = setting, into = c("n", "d", "zero_prop"), sep = ", ") %>%
+  mutate(n = paste0("n = ", n),
+         d = paste0("d = ", d)) %>%
+  unite("label", n:d, sep = ", ")
+df_fig1$label = factor(df_fig1$label, 
+                       levels = c("n = 100, d = 50", 
+                                  "n = 100, d = 200",
+                                  "n = 100, d = 500"))
+df_fig1$method = factor(df_fig1$method,
+                        levels = c("MetVAE", "SECOM (Filtering)", "SECOM (Thresholding)", 
+                                   "SparCC", "SPIEC-EASI", "SPRING", "Pearson"))
+
+fig_unconfound1 = df_fig1 %>%
+  ggplot(aes(x = zero_prop, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = zero_prop), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
+  facet_grid(rows = vars(measure), cols = vars(label), scales = "free", switch = "y",
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR", fdr = "FDR"))) +
+  labs(title = NULL, x = "Proportion of Zeros", y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5),
+        strip.background = element_rect(fill = "white"),
+        legend.position = "top")
+
+# Excluding Pearson and SECOM (Thresholding)
+df_fig2 = df_fig1 %>%
+  filter(! method %in% c("Pearson", "SECOM (Thresholding)"))
+
+fig_unconfound2 = df_fig2 %>%
+  ggplot(aes(x = zero_prop, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = zero_prop), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
+  facet_grid(rows = vars(measure), cols = vars(label), scales = "free", switch = "y",
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR", fdr = "FDR"))) +
+  labs(title = NULL, x = "Proportion of Zeros", y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5),
+        strip.background = element_rect(fill = "white"),
+        legend.position = "top")
+```
+
+# With confounders
+
+Code for executing each method is available in a separate "simulation code" folder.
+
+```{r, fig.height=10, fig.width=12}
+df_metvae = read_csv("../results/intermediate_results/simulations/sim_metvae_confound.csv")
+df_pearson = read_csv("../results/intermediate_results/simulations/sim_pearson_confound.csv")
+df_secom = read_csv("../results/intermediate_results/simulations/sim_secom_confound.csv")
+df_secom1 = df_secom[, 1:3]
+df_secom2 = df_secom[, 4:6]
+df_sparcc = read_csv("../results/intermediate_results/simulations/sim_sparcc_confound.csv")
+# Add 800 rows filled with NA values to `df_sparcc`
+df_na = as.data.frame(matrix(NA, nrow = 800, ncol = ncol(df_sparcc)))
+colnames(df_na) = colnames(df_sparcc)
+df_sparcc = rbind(df_sparcc, df_na)
+df_se = read_csv("../results/intermediate_results/simulations/sim_spiec_easi_confound.csv")
+df_spring = read_csv("../results/intermediate_results/simulations/sim_spring_confound.csv")
+
+col_lab = c("tpr", "fpr", "fdr")
+colnames(df_metvae) = col_lab
+colnames(df_pearson) = col_lab
+colnames(df_secom1) = col_lab
+colnames(df_secom2) = col_lab
+colnames(df_sparcc) = col_lab
+colnames(df_se) = col_lab
+colnames(df_spring) = col_lab
+
+simpattern = distinct(simparams, n, d, zero_prop) %>%
+  unite("setting", n:zero_prop, sep = ", ")
+
+df_metvae = df_metvae %>%
+  mutate(method = "MetVAE", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_pearson = df_pearson %>%
+  mutate(method = "Pearson", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_secom1 = df_secom1 %>%
+  mutate(method = "SECOM (Filtering)", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_secom2 = df_secom2 %>%
+  mutate(method = "SECOM (Thresholding)", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_sparcc = df_sparcc %>%
+  mutate(method = "SparCC", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_se = df_se %>%
+  mutate(method = "SPIEC-EASI", 
+         setting = rep(simpattern$setting, each = iter_num))
+df_spring = df_spring %>%
+  mutate(method = "SPRING", 
+         setting = rep(simpattern$setting, each = iter_num))
+
+df_all = df_metvae %>%
+  bind_rows(df_pearson) %>%
+  bind_rows(df_secom1) %>%
+  bind_rows(df_secom2) %>%
+  bind_rows(df_sparcc) %>%
+  bind_rows(df_se) %>%
+  bind_rows(df_spring)
+df_all$setting = factor(df_all$setting, 
+                        levels = simpattern$setting)
+df_all = df_all %>%
+  dplyr::select(-fpr)
+
+# Simulation summary
+tab = df_all %>% 
+  group_by(method, setting) %>% 
+  summary_table(summary_template)
+
+addWorksheet(wb, "confound")
+writeData(wb, "confound", tab)
+
+# Visualizations
+# Including Pearson
+df_fig2 = df_all %>%
+  pivot_longer(cols = tpr:fdr, names_to = "measure", values_to = "value") %>%
+  separate(col = setting, into = c("n", "d", "zero_prop"), sep = ", ") %>%
+  mutate(n = paste0("n = ", n),
+         d = paste0("d = ", d)) %>%
+  unite("label", n:d, sep = ", ")
+df_fig2$label = factor(df_fig2$label, 
+                       levels = c("n = 100, d = 50", 
+                                  "n = 100, d = 200",
+                                  "n = 100, d = 500"))
+df_fig2$method = factor(df_fig2$method,
+                        levels = c("MetVAE", "SECOM (Filtering)", "SECOM (Thresholding)", 
+                                   "SparCC", "SPIEC-EASI", "SPRING", "Pearson"))
+
+fig_confound1 = df_fig2 %>%
+  ggplot(aes(x = zero_prop, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = zero_prop), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
+  facet_grid(rows = vars(measure), cols = vars(label), scales = "free", switch = "y",
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR", fdr = "FDR"))) +
+  labs(title = NULL, x = "Proportion of Zeros", y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5),
+        strip.background = element_rect(fill = "white"),
+        legend.position = "top")
+
+# Excluding Pearson and SECOM (Thresholding)
+df_fig2 = df_fig2 %>%
+  filter(! method %in% c("Pearson", "SECOM (Thresholding)"))
+
+fig_confound2 = df_fig2 %>%
+  ggplot(aes(x = zero_prop, y = value, fill = method)) + 
+  stat_summary(fun = mean, geom = "bar", position = "dodge", color = "black") + 
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1), color = "black",
+               geom = "errorbar", width = .3, position = position_dodge(.9)) +
+  geom_point(aes(x = zero_prop), size = .1, alpha = .3, 
+             position = position_jitterdodge(jitter.width = .2, dodge.width = .9)) +
+  scale_fill_nejm(name = NULL) +
+  guides(fill = guide_legend(override.aes = list(shape = NA))) +
+  facet_grid(rows = vars(measure), cols = vars(label), scales = "free", switch = "y",
+             labeller = labeller(measure = c(tpr = "TPR", fpr = "FPR", fdr = "FDR"))) +
+  labs(title = NULL, x = "Proportion of Zeros", y = NULL) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = .5),
+        strip.background = element_rect(fill = "white"),
+        legend.position = "top")
+```
+
+# Outputs
+
+```{r}
+# Main figures
+ggsave(filename = "../results/figures/main_sim_unconfound.pdf", 
+       plot = fig_unconfound1, width = 12, height = 12)
+ggsave(filename = "../results/figures/main_sim_confound.pdf", 
+       plot = fig_confound1, width = 12, height = 12)
+
+# Simulation summary
+saveWorkbook(wb, file = "../results/outputs/simulations/sim_summ.xlsx", overwrite = TRUE)
+```
+
+# Session information
+
+```{r, message = FALSE, warning = FALSE, comment = NA}
+sessionInfo()
+```
+
+
+
+
+

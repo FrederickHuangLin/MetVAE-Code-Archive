@@ -1,0 +1,89 @@
+# Python Development Files
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Python Virtual Environments
+venv/
+env/
+.env/
+.venv/
+
+# Python Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints/
+
+# R Development Files
+# R History files
+.Rhistory
+.Rapp.history
+
+# R Session Data
+.RData
+.RDataTmp
+
+# R User-specific files
+.Ruserdata
+
+# R Project files
+.Rproj.user/
+*.Rproj
+
+# R Packrat dependency management
+packrat/lib*/
+packrat/src/
+
+# R renv dependency management
+renv/
+.renv/
+
+# RStudio specific files
+*.utf8.md
+*.knit.md
+
+# macOS System Files
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# macOS Thumbnails
+._*
+
+# macOS Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# macOS Directory-specific files
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# IDE and Editor Files
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+*.iml
+
+# Large files
+data/redu/redu_abundance.csv
+data/hcc/hcc_cosine_graph.graphml
+data/hcc/hcc_abundance.csv
+results/outputs/hcc/hcc_corr.xlsx
+results/outputs/redu/model_state.pth
+

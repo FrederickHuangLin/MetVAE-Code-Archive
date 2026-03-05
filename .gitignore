@@ -81,9 +81,7 @@ Temporary Items
 *.iml
 
 # Large files
-data/redu/redu_abundance.csv
-data/hcc/hcc_cosine_graph.graphml
-data/hcc/hcc_abundance.csv
-results/outputs/hcc/hcc_corr.xlsx
-results/outputs/redu/model_state.pth
+data/
+results/outputs/
+results/intermediate_results/
 
